@@ -22,6 +22,7 @@ Use your OpenCode Go subscription from Claude Code or Codex CLI in one command â
 - Start, stop, and inspect a local proxy server.
 - Exposes Anthropic-compatible and OpenAI-compatible local API layers.
 - Supports streaming text responses and basic tool-call translation.
+- Configurable upstream API URL â€” use your own LiteLLM proxy or other OpenAI-compatible backend.
 
 ## Requirements
 
@@ -79,6 +80,33 @@ export OCGO_API_KEY=sk-opencode-your-key
 ```
 
 By default, the local proxy listens on `127.0.0.1:3456`.
+
+### Custom upstream URL
+
+By default, `ocgo` forwards requests to OpenCode Go. To use a different upstream (e.g. a LiteLLM proxy or any OpenAI-compatible backend):
+
+```bash
+ocgo setup --upstream-url https://your-litellm-proxy.example.com/v1/chat/completions
+```
+
+Or set it via environment variable:
+
+```bash
+export OCGO_UPSTREAM_URL=https://your-litellm-proxy.example.com/v1/chat/completions
+```
+
+You can also set it in the config file directly:
+
+```json
+{
+  "api_key": "sk-your-key",
+  "host": "127.0.0.1",
+  "port": 3456,
+  "upstream_url": "https://your-litellm-proxy.example.com/v1/chat/completions"
+}
+```
+
+Priority order: **config file > environment variable > default** (OpenCode Go endpoint).
 
 ## Usage
 

@@ -35,6 +35,7 @@ type Config struct {
 	APIKey string `json:"api_key"`
 	Host   string `json:"host"`
 	Port   int    `json:"port"`
+	UpstreamURL string `json:"upstream_url,omitempty"`
 }
 
 type AnthropicRequest struct {
@@ -148,6 +149,7 @@ func main() {
 
 func setupCmd() *cobra.Command {
 	var key string
+	var upstreamURL string
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Save your OpenCode Go API key",
@@ -163,7 +165,12 @@ func setupCmd() *cobra.Command {
 				}
 				key = line
 			}
-			cfg := Config{APIKey: strings.TrimSpace(key), Host: defaultHost, Port: defaultPort}
+			// Preserve existing upstream URL if not explicitly set
+			existingCfg, _ := loadConfig()
+			cfg := Config{APIKey: strings.TrimSpace(key), Host: defaultHost, Port: defaultPort, UpstreamURL: strings.TrimSpace(upstreamURL)}
+			if cfg.UpstreamURL == "" && existingCfg.UpstreamURL != "" {
+				cfg.UpstreamURL = existingCfg.UpstreamURL
+			}
 			if cfg.APIKey == "" {
 				return errors.New("API key cannot be empty")
 			}
@@ -171,6 +178,7 @@ func setupCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&key, "api-key", "", "OpenCode Go API key")
+	cmd.Flags().StringVar(&upstreamURL, "upstream-url", "", "Custom upstream API URL (default: OpenCode Go)")
 	return cmd
 }
 
@@ -375,7 +383,7 @@ func proxyMessages(w http.ResponseWriter, r *http.Request, cfg Config) {
 		return
 	}
 	body, _ := json.Marshal(or)
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, openAIURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, cfg.UpstreamURL, bytes.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -415,7 +423,7 @@ func proxyChatCompletions(w http.ResponseWriter, r *http.Request, cfg Config) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, openAIURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, cfg.UpstreamURL, bytes.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -449,7 +457,7 @@ func proxyResponses(w http.ResponseWriter, r *http.Request, cfg Config) {
 		return
 	}
 	body, _ := json.Marshal(or)
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, openAIURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, cfg.UpstreamURL, bytes.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1487,7 +1495,7 @@ func writeCodexProfile(path, baseURL string) error {
 		header string
 		lines  []string
 	}{
-		{fmt.Sprintf("[profiles.%s]", codexProfileName), []string{fmt.Sprintf("openai_base_url = %q", baseURL), `forced_login_method = "api"`, fmt.Sprintf("model_provider = %q", codexProfileName), fmt.Sprintf("model_catalog_json = %q", catalogPath), `model_reasoning_effort = "minimal"`, `model_reasoning_summary = "none"`}},
+		{fmt.Sprintf("[profiles.%s]", codexProfileName), []string{fmt.Sprintf("openai_base_url = %q", baseURL), `forced_login_method = "api"`, fmt.Sprintf("model_provider = %q", codexProfileName), fmt.Sprintf("model_catalog_json = %q", catalogPath), `model_reasoning_effort = "normal"`, `model_reasoning_summary = "none"`}},
 		{fmt.Sprintf("[model_providers.%s]", codexProfileName), []string{`name = "OpenCode Go"`, fmt.Sprintf("base_url = %q", baseURL), `wire_api = "responses"`}},
 	}
 	b, err := os.ReadFile(path)
@@ -1526,7 +1534,7 @@ func writeCodexModelCatalog(path string) error {
 			"slug":                             id,
 			"display_name":                     id,
 			"description":                      "OpenCode Go model",
-			"default_reasoning_level":          nil,
+			"default_reasoning_level":          "normal",
 			"supported_reasoning_levels":       []any{},
 			"shell_type":                       "shell_command",
 			"visibility":                       "list",
@@ -1622,7 +1630,7 @@ func saveConfig(cfg Config) error {
 }
 
 func loadConfig() (Config, error) {
-	cfg := Config{Host: defaultHost, Port: defaultPort, APIKey: os.Getenv("OCGO_API_KEY")}
+	cfg := Config{Host: defaultHost, Port: defaultPort, APIKey: os.Getenv("OCGO_API_KEY"), UpstreamURL: os.Getenv("OCGO_UPSTREAM_URL")}
 	b, err := os.ReadFile(configFile())
 	if err == nil {
 		_ = json.Unmarshal(b, &cfg)
@@ -1635,6 +1643,9 @@ func loadConfig() (Config, error) {
 	}
 	if cfg.Port == 0 {
 		cfg.Port = defaultPort
+	}
+	if cfg.UpstreamURL == "" {
+		cfg.UpstreamURL = openAIURL
 	}
 	return cfg, nil
 }

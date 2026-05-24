@@ -25,7 +25,7 @@ func TestWriteCodexProfile(t *testing.T) {
 		`forced_login_method = "api"`,
 		`model_provider = "ocgo-launch"`,
 		`model_catalog_json = `,
-		`model_reasoning_effort = "minimal"`,
+		`model_reasoning_effort = "normal"`,
 		`model_reasoning_summary = "none"`,
 		"[model_providers.ocgo-launch]",
 		`name = "OpenCode Go"`,
@@ -466,5 +466,78 @@ func TestStreamResponsesForwardsToolCalls(t *testing.T) {
 	messages := responsesInputToMessages([]byte(`[{"type":"function_call","call_id":"call_abc","name":"shell","arguments":"{\"cmd\":\"pwd\"}"},{"type":"function_call_output","call_id":"call_abc","output":"/tmp"}]`))
 	if messages[0].ReasoningContent != "I should call the tool." {
 		t.Fatalf("missing cached reasoning content: %+v", messages[0])
+	}
+}
+
+func TestLoadConfigDefaultsUpstreamURL(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("OCGO_API_KEY", "sk-test")
+	t.Setenv("OCGO_UPSTREAM_URL", "")
+	cfgDir := filepath.Join(dir, ".config", "ocgo")
+	os.MkdirAll(cfgDir, 0755)
+	os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(`{"api_key":"sk-test"}`), 0600)
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UpstreamURL != openAIURL {
+		t.Fatalf("expected default upstream URL %q, got %q", openAIURL, cfg.UpstreamURL)
+	}
+}
+
+func TestLoadConfigEnvUpstreamURL(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("OCGO_API_KEY", "sk-test")
+	t.Setenv("OCGO_UPSTREAM_URL", "https://litellm.example.com/v1/chat/completions")
+	cfgDir := filepath.Join(dir, ".config", "ocgo")
+	os.MkdirAll(cfgDir, 0755)
+	os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(`{"api_key":"sk-test"}`), 0600)
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UpstreamURL != "https://litellm.example.com/v1/chat/completions" {
+		t.Fatalf("expected env upstream URL, got %q", cfg.UpstreamURL)
+	}
+}
+
+func TestLoadConfigFileUpstreamURLOverridesEnv(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("OCGO_API_KEY", "sk-test")
+	t.Setenv("OCGO_UPSTREAM_URL", "https://env.example.com/v1/chat/completions")
+	cfgDir := filepath.Join(dir, ".config", "ocgo")
+	os.MkdirAll(cfgDir, 0755)
+	os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(`{"api_key":"sk-test","upstream_url":"https://file.example.com/v1/chat/completions"}`), 0600)
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UpstreamURL != "https://file.example.com/v1/chat/completions" {
+		t.Fatalf("expected file upstream URL to override env, got %q", cfg.UpstreamURL)
+	}
+}
+
+func TestSetupPreservesUpstreamURL(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("OCGO_API_KEY", "sk-old")
+	t.Setenv("OCGO_UPSTREAM_URL", "")
+	cfgDir := filepath.Join(dir, ".config", "ocgo")
+	os.MkdirAll(cfgDir, 0755)
+	os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(`{"api_key":"sk-old","upstream_url":"https://my-litellm.example.com/v1/chat/completions"}`), 0600)
+	cfg := Config{APIKey: "sk-new", Host: defaultHost, Port: defaultPort}
+	existingCfg, _ := loadConfig()
+	if cfg.UpstreamURL == "" && existingCfg.UpstreamURL != "" {
+		cfg.UpstreamURL = existingCfg.UpstreamURL
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _ := loadConfig()
+	if loaded.UpstreamURL != "https://my-litellm.example.com/v1/chat/completions" {
+		t.Fatalf("expected preserved upstream URL, got %q", loaded.UpstreamURL)
 	}
 }
